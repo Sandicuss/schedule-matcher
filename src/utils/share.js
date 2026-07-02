@@ -14,13 +14,21 @@ function fromBase64Url(value) {
   return new TextDecoder().decode(bytes);
 }
 
-export function getShareUrl(schedule) {
+const EVENT_HASH_PREFIX = "#event=";
+
+export function getShareUrl(schedule, { shortLink = false } = {}) {
+  if (shortLink) {
+    return `${window.location.origin}${window.location.pathname}${EVENT_HASH_PREFIX}${encodeURIComponent(
+      schedule.id,
+    )}`;
+  }
+
   const payload = toBase64Url(JSON.stringify({ version: 1, schedule }));
-  return `${window.location.origin}${window.location.pathname}#event=${payload}`;
+  return `${window.location.origin}${window.location.pathname}${EVENT_HASH_PREFIX}${payload}`;
 }
 
 export function decodeScheduleHash(hash) {
-  const key = hash.startsWith("#event=") ? "#event=" : "#schedule=";
+  const key = hash.startsWith(EVENT_HASH_PREFIX) ? EVENT_HASH_PREFIX : "#schedule=";
   if (!hash.startsWith(key)) return null;
 
   try {
@@ -29,4 +37,12 @@ export function decodeScheduleHash(hash) {
   } catch {
     return null;
   }
+}
+
+export function getEventIdFromHash(hash) {
+  if (!hash.startsWith(EVENT_HASH_PREFIX) || decodeScheduleHash(hash)) {
+    return "";
+  }
+
+  return decodeURIComponent(hash.replace(EVENT_HASH_PREFIX, ""));
 }

@@ -6,6 +6,9 @@ export default function App() {
   const {
     schedule,
     shareUrl,
+    isLoading,
+    isSyncing,
+    syncError,
     ownedParticipantIds,
     createEvent,
     saveParticipant,
@@ -15,17 +18,27 @@ export default function App() {
 
   return (
     <main className="app-shell">
-      {schedule ? (
+      {isLoading ? (
+        <section className="landing-screen">
+          <div className="create-panel">
+            <p className="eyebrow">Schedule matcher</p>
+            <h1>Loading event</h1>
+            <p className="empty-note">Pulling the latest saved times from Supabase.</p>
+          </div>
+        </section>
+      ) : schedule ? (
         <EventPage
           schedule={schedule}
           shareUrl={shareUrl}
+          isSyncing={isSyncing}
+          syncError={syncError}
           ownedParticipantIds={ownedParticipantIds}
           onSaveParticipant={saveParticipant}
           onDeleteParticipant={deleteParticipant}
           onStartNewEvent={startNewEvent}
         />
       ) : (
-        <LandingPage onCreateEvent={createEvent} />
+        <LandingPage loadError={syncError} onCreateEvent={createEvent} />
       )}
     </main>
   );

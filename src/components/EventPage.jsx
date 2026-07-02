@@ -57,6 +57,8 @@ function SlotDetails({ selectedSlot }) {
 export default function EventPage({
   schedule,
   shareUrl,
+  isSyncing,
+  syncError,
   ownedParticipantIds,
   onSaveParticipant,
   onDeleteParticipant,
@@ -68,6 +70,7 @@ export default function EventPage({
   const [selectedSlotKey, setSelectedSlotKey] = useState("");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const days = buildCalendarDays(schedule.startDate, schedule.endDate);
   const timeSlots = buildTimeSlots(
     schedule.startTime,
@@ -114,6 +117,7 @@ export default function EventPage({
     trimmedName &&
     !duplicateName &&
     canEditSelected &&
+    !isSaving &&
     (selectedCount > 0 || Boolean(editingParticipantId));
   const canEditAvailability = Boolean(trimmedName) && !duplicateName && canEditSelected;
 
@@ -161,19 +165,24 @@ export default function EventPage({
     });
   }
 
-  function handleSave(event) {
+  async function handleSave(event) {
     event.preventDefault();
     if (!canSave) return;
 
-    const wasSaved = onSaveParticipant({
-      id: editingParticipantId,
-      name: trimmedName,
-      availability,
-    });
-    if (!wasSaved) return;
+    setIsSaving(true);
+    try {
+      const wasSaved = await onSaveParticipant({
+        id: editingParticipantId,
+        name: trimmedName,
+        availability,
+      });
+      if (!wasSaved) return;
 
-    clearEditor();
-    setSaved(true);
+      clearEditor();
+      setSaved(true);
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   async function copyLink() {
@@ -198,6 +207,11 @@ export default function EventPage({
           {copied ? "Copied" : "Copy link"}
         </button>
       </header>
+      {(syncError || isSyncing) && (
+        <p className={syncError ? "warning-note sync-note" : "empty-note sync-note"}>
+          {syncError || "Saving to Supabase..."}
+        </p>
+      )}
 
       <div className="event-layout">
         <aside className="join-panel">
@@ -232,7 +246,7 @@ export default function EventPage({
             <div className="form-actions">
               <button className="primary-action" type="submit" disabled={!canSave}>
                 <Save size={18} aria-hidden="true" />
-                Save
+                {isSaving ? "Saving" : "Save"}
               </button>
               {editingParticipant && (
                 <button className="secondary-action" type="button" onClick={clearEditor}>
@@ -283,6 +297,7 @@ export default function EventPage({
                         className="small-icon-button danger"
                         type="button"
                         onClick={() => deleteParticipant(person)}
+                        disabled={!ownedParticipantIds.includes(person.id)}
                         aria-label={`Delete ${person.name}`}
                         title={`Delete ${person.name}`}
                       >

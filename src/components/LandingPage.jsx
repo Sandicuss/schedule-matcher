@@ -6,19 +6,25 @@ function isoDate(date) {
   return format(date, "yyyy-MM-dd");
 }
 
-export default function LandingPage({ onCreateEvent }) {
+export default function LandingPage({ loadError, onCreateEvent }) {
   const today = isoDate(new Date());
   const [title, setTitle] = useState("");
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(isoDate(addDays(new Date(), 3)));
+  const [isCreating, setIsCreating] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    onCreateEvent({
-      title,
-      startDate,
-      endDate: endDate < startDate ? startDate : endDate,
-    });
+    setIsCreating(true);
+    try {
+      await onCreateEvent({
+        title,
+        startDate,
+        endDate: endDate < startDate ? startDate : endDate,
+      });
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   return (
@@ -29,6 +35,7 @@ export default function LandingPage({ onCreateEvent }) {
           Schedule matcher
         </p>
         <h1>Create event</h1>
+        {loadError && <p className="warning-note">{loadError}</p>}
 
         <label>
           Event name
@@ -62,9 +69,9 @@ export default function LandingPage({ onCreateEvent }) {
           </label>
         </div>
 
-        <button className="primary-action" type="submit">
+        <button className="primary-action" type="submit" disabled={isCreating}>
           <CalendarPlus size={19} aria-hidden="true" />
-          Create event
+          {isCreating ? "Creating" : "Create event"}
         </button>
       </form>
     </section>
