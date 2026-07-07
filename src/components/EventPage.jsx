@@ -18,13 +18,28 @@ import { buildCalendarDays, buildTimeSlots, formatSlot } from "../utils/dateSlot
 import { getOverlapSummary, getSlotStatus } from "../utils/availability.js";
 
 function formatEventDates(schedule) {
-  const start = format(parseISO(schedule.startDate), "MMM d");
-  const end = format(parseISO(schedule.endDate), "MMM d");
-  return start === end ? start : `${start} to ${end}`;
+  const days = buildCalendarDays(
+    schedule.startDate,
+    schedule.endDate,
+    schedule.selectedDates,
+  );
+
+  if (!days.length) return "No dates selected";
+
+  const start = format(parseISO(days[0].key), "MMM d");
+  const end = format(parseISO(days[days.length - 1].key), "MMM d");
+
+  if (start === end) return start;
+
+  return `${start} to ${end}, ${days.length} days`;
 }
 
 function countAvailability(availability) {
   return Object.values(availability).filter(Boolean).length;
+}
+
+function getMinimumEndTime(endTime) {
+  return endTime && endTime > "25:00" ? endTime : "25:00";
 }
 
 function SlotDetails({ selectedSlot }) {
@@ -71,10 +86,14 @@ export default function EventPage({
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const days = buildCalendarDays(schedule.startDate, schedule.endDate);
+  const days = buildCalendarDays(
+    schedule.startDate,
+    schedule.endDate,
+    schedule.selectedDates,
+  );
   const timeSlots = buildTimeSlots(
     schedule.startTime,
-    schedule.endTime,
+    getMinimumEndTime(schedule.endTime),
     schedule.slotMinutes,
   );
   const editingParticipant = schedule.participants.find(
@@ -105,21 +124,22 @@ export default function EventPage({
   }, [days, schedule.participants, selectedSlotKey, timeSlots]);
   const selectedCount = countAvailability(availability);
   const trimmedName = name.trim();
-  const duplicateName =
+  const hasDuplicateName =
     !editingParticipantId &&
     trimmedName &&
     schedule.participants.some(
       (person) => person.name.toLowerCase() === trimmedName.toLowerCase(),
     );
+  const duplicateName = !isSaving && hasDuplicateName;
   const canEditSelected =
     !editingParticipant || ownedParticipantIds.includes(editingParticipant.id);
   const canSave =
     trimmedName &&
-    !duplicateName &&
+    !hasDuplicateName &&
     canEditSelected &&
     !isSaving &&
     (selectedCount > 0 || Boolean(editingParticipantId));
-  const canEditAvailability = Boolean(trimmedName) && !duplicateName && canEditSelected;
+  const canEditAvailability = !hasDuplicateName && canEditSelected;
 
   useEffect(() => {
     if (
@@ -161,6 +181,24 @@ export default function EventPage({
       } else {
         next[slotKey] = true;
       }
+      return next;
+    });
+  }
+
+  function toggleAvailabilityGroup(slotKeys) {
+    setSaved(false);
+    setAvailability((current) => {
+      const shouldClearGroup = slotKeys.every((slotKey) => current[slotKey]);
+      const next = { ...current };
+
+      slotKeys.forEach((slotKey) => {
+        if (shouldClearGroup) {
+          delete next[slotKey];
+        } else {
+          next[slotKey] = true;
+        }
+      });
+
       return next;
     });
   }
@@ -261,7 +299,19 @@ export default function EventPage({
           <section className="link-panel">
             <div className="panel-title">
               <h2>Event link</h2>
-              <Link2 size={18} aria-hidden="true" />
+              <button
+                className="panel-icon-button"
+                type="button"
+                onClick={copyLink}
+                aria-label="Copy event link"
+                title="Copy event link"
+              >
+                {copied ? (
+                  <Check size={18} aria-hidden="true" />
+                ) : (
+                  <Link2 size={18} aria-hidden="true" />
+                )}
+              </button>
             </div>
             <input value={shareUrl} readOnly aria-label="Event link" />
           </section>
@@ -326,6 +376,7 @@ export default function EventPage({
             selectedAvailability={availability}
             canEditAvailability={canEditAvailability}
             onToggleAvailability={toggleAvailability}
+            onToggleAvailabilityGroup={toggleAvailabilityGroup}
             onSelectSlot={setSelectedSlotKey}
           />
         </section>

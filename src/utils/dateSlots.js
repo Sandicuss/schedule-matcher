@@ -1,7 +1,5 @@
 import { addDays, format, isAfter, isValid, parseISO } from "date-fns";
 
-const MAX_DAYS = 14;
-
 function parseDate(value) {
   const date = parseISO(value);
   return isValid(date) ? date : null;
@@ -18,7 +16,29 @@ function timeFromMinutes(totalMinutes) {
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-export function buildCalendarDays(startDate, endDate) {
+function makeDay(date) {
+  return {
+    key: format(date, "yyyy-MM-dd"),
+    weekday: format(date, "EEE"),
+    label: format(date, "MMM d"),
+  };
+}
+
+function normalizeSelectedDates(selectedDates) {
+  if (!Array.isArray(selectedDates)) return [];
+
+  return [...new Set(selectedDates)]
+    .filter((dateKey) => parseDate(dateKey))
+    .sort();
+}
+
+export function buildCalendarDays(startDate, endDate, selectedDates) {
+  const exactDates = normalizeSelectedDates(selectedDates);
+
+  if (exactDates.length) {
+    return exactDates.map((dateKey) => makeDay(parseDate(dateKey)));
+  }
+
   const start = parseDate(startDate);
   const end = parseDate(endDate);
 
@@ -28,12 +48,8 @@ export function buildCalendarDays(startDate, endDate) {
   const days = [];
   let current = start;
 
-  while (days.length < MAX_DAYS && !isAfter(current, lastDate)) {
-    days.push({
-      key: format(current, "yyyy-MM-dd"),
-      weekday: format(current, "EEE"),
-      label: format(current, "MMM d"),
-    });
+  while (!isAfter(current, lastDate)) {
+    days.push(makeDay(current));
     current = addDays(current, 1);
   }
 

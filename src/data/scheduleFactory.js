@@ -29,14 +29,22 @@ export function createParticipant(name, index, availability = {}) {
   };
 }
 
-export function createSchedule({ title, startDate, endDate }) {
+export function createSchedule({
+  title,
+  startDate,
+  endDate,
+  selectedDates = [],
+  dateSelectionMode = "range",
+}) {
   return {
     id: createId("event"),
     title: title.trim() || "Untitled event",
     startDate,
     endDate,
+    dateSelectionMode,
+    selectedDates,
     startTime: "08:00",
-    endTime: "23:00",
+    endTime: "25:00",
     slotMinutes: 60,
     participants: [],
   };
