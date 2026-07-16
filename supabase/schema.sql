@@ -25,7 +25,7 @@ create or replace function public.hash_event_token(write_token text)
 returns text
 language sql
 immutable
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
   select encode(digest(write_token, 'sha256'), 'hex');
 $$;
