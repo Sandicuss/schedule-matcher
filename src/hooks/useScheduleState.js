@@ -2,10 +2,17 @@ import { useEffect, useMemo, useState } from "react";
 import { createParticipant, createSchedule } from "../data/scheduleFactory.js";
 import {
   canUseRemoteStorage,
+  createRemoteSchedule,
   loadRemoteSchedule,
   saveRemoteSchedule,
 } from "../utils/scheduleStorage.js";
-import { decodeScheduleHash, getEventIdFromHash, getShareUrl } from "../utils/share.js";
+import {
+  createRemoteWriteToken,
+  decodeScheduleHash,
+  getEventIdFromHash,
+  getEventWriteTokenFromHash,
+  getShareUrl,
+} from "../utils/share.js";
 
 const OWNER_STORAGE_PREFIX = "schedule-time-matcher-owned";
 const REMOTE_STORAGE_ENABLED = canUseRemoteStorage();
@@ -18,12 +25,23 @@ function shouldLoadRemoteSchedule() {
   return Boolean(getEventIdFromHash(window.location.hash) && REMOTE_STORAGE_ENABLED);
 }
 
-function updateUrl(schedule) {
+function loadInitialRemoteWriteToken() {
+  return getEventWriteTokenFromHash(window.location.hash);
+}
+
+function updateUrl(schedule, writeToken = "") {
   window.history.replaceState(
     null,
     "",
-    getShareUrl(schedule, { shortLink: REMOTE_STORAGE_ENABLED }),
+    getShareUrl(schedule, {
+      shortLink: REMOTE_STORAGE_ENABLED,
+      writeToken,
+    }),
   );
+}
+
+function getReadOnlyRemoteMessage() {
+  return "This event link is read-only because it is missing its private edit token.";
 }
 
 function getOwnerStorageKey(scheduleId) {
@@ -49,6 +67,9 @@ export function useScheduleState() {
   const [isLoading, setIsLoading] = useState(shouldLoadRemoteSchedule);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
+  const [remoteWriteToken, setRemoteWriteToken] = useState(
+    loadInitialRemoteWriteToken,
+  );
   const [ownedParticipantIds, setOwnedParticipantIds] = useState(() =>
     loadOwnedParticipantIds(loadInitialSchedule()?.id),
   );
@@ -57,22 +78,28 @@ export function useScheduleState() {
     let isActive = true;
 
     async function loadScheduleFromHash() {
-      const decodedSchedule = loadInitialSchedule();
-      const eventId = getEventIdFromHash(window.location.hash);
+      const hash = window.location.hash;
+      const decodedSchedule = decodeScheduleHash(hash);
+      const eventId = getEventIdFromHash(hash);
+      const eventWriteToken = getEventWriteTokenFromHash(hash);
 
       if (decodedSchedule) {
         setSchedule(decodedSchedule);
         setIsLoading(false);
         setSyncError("");
         if (REMOTE_STORAGE_ENABLED) {
+          const writeToken = eventWriteToken || createRemoteWriteToken();
+          setRemoteWriteToken(writeToken);
           try {
-            await saveRemoteSchedule(decodedSchedule);
-            if (isActive) updateUrl(decodedSchedule);
+            await createRemoteSchedule(decodedSchedule, writeToken);
+            if (isActive) updateUrl(decodedSchedule, writeToken);
           } catch {
             if (isActive) {
               setSyncError("This event opened locally, but it could not sync to Supabase.");
             }
           }
+        } else {
+          setRemoteWriteToken("");
         }
         return;
       }
@@ -81,6 +108,7 @@ export function useScheduleState() {
         setSchedule(null);
         setIsLoading(false);
         setSyncError("");
+        setRemoteWriteToken("");
         return;
       }
 
@@ -93,13 +121,20 @@ export function useScheduleState() {
 
       setIsLoading(true);
       setSyncError("");
+      setRemoteWriteToken(eventWriteToken);
 
       try {
         const remoteSchedule = await loadRemoteSchedule(eventId);
         if (!isActive) return;
 
         setSchedule(remoteSchedule);
-        setSyncError(remoteSchedule ? "" : "That event was not found in Supabase.");
+        setSyncError(
+          remoteSchedule
+            ? eventWriteToken
+              ? ""
+              : getReadOnlyRemoteMessage()
+            : "That event was not found in Supabase.",
+        );
       } catch {
         if (isActive) {
           setSchedule(null);
@@ -129,23 +164,40 @@ export function useScheduleState() {
   const shareUrl = useMemo(
     () =>
       schedule
-        ? getShareUrl(schedule, { shortLink: REMOTE_STORAGE_ENABLED })
+        ? getShareUrl(schedule, {
+            shortLink: REMOTE_STORAGE_ENABLED,
+            writeToken: remoteWriteToken,
+          })
         : "",
-    [schedule],
+    [remoteWriteToken, schedule],
   );
 
-  async function persistSchedule(nextSchedule) {
+  async function persistSchedule(
+    nextSchedule,
+    { createRemote = false, writeToken = remoteWriteToken } = {},
+  ) {
+    if (REMOTE_STORAGE_ENABLED && !writeToken) {
+      setSyncError(getReadOnlyRemoteMessage());
+      return false;
+    }
+
     setSchedule(nextSchedule);
-    updateUrl(nextSchedule);
+    updateUrl(nextSchedule, writeToken);
     setSyncError("");
 
-    if (!REMOTE_STORAGE_ENABLED) return;
+    if (!REMOTE_STORAGE_ENABLED) return true;
 
     setIsSyncing(true);
     try {
-      await saveRemoteSchedule(nextSchedule);
+      if (createRemote) {
+        await createRemoteSchedule(nextSchedule, writeToken);
+      } else {
+        await saveRemoteSchedule(nextSchedule, writeToken);
+      }
+      return true;
     } catch {
       setSyncError("Saved in this browser, but Supabase did not accept the update.");
+      return false;
     } finally {
       setIsSyncing(false);
     }
@@ -153,7 +205,26 @@ export function useScheduleState() {
 
   async function createEvent(details) {
     const nextSchedule = createSchedule(details);
-    await persistSchedule(nextSchedule);
+
+    if (!REMOTE_STORAGE_ENABLED) {
+      await persistSchedule(nextSchedule);
+      return;
+    }
+
+    const writeToken = createRemoteWriteToken();
+    setIsSyncing(true);
+    setSyncError("");
+
+    try {
+      await createRemoteSchedule(nextSchedule, writeToken);
+      setRemoteWriteToken(writeToken);
+      setSchedule(nextSchedule);
+      updateUrl(nextSchedule, writeToken);
+    } catch {
+      setSyncError("Supabase did not accept the new event. Check the SQL schema and project settings.");
+    } finally {
+      setIsSyncing(false);
+    }
   }
 
   async function saveParticipant({ id, name, availability }) {
@@ -185,14 +256,14 @@ export function useScheduleState() {
       participants,
     };
 
-    setSchedule(nextSchedule);
-    updateUrl(nextSchedule);
+    const wasPersisted = await persistSchedule(nextSchedule);
+    if (!wasPersisted) return false;
+
     if (existingIndex < 0) {
       const nextOwnedIds = [...new Set([...ownedParticipantIds, participant.id])];
       setOwnedParticipantIds(nextOwnedIds);
       saveOwnedParticipantIds(schedule.id, nextOwnedIds);
     }
-    await persistSchedule(nextSchedule);
 
     return true;
   }
@@ -206,19 +277,20 @@ export function useScheduleState() {
       participants: schedule.participants.filter((person) => person.id !== id),
     };
 
-    setSchedule(nextSchedule);
-    updateUrl(nextSchedule);
+    const wasPersisted = await persistSchedule(nextSchedule);
+    if (!wasPersisted) return false;
+
     const nextOwnedIds = ownedParticipantIds.filter(
       (participantId) => participantId !== id,
     );
     setOwnedParticipantIds(nextOwnedIds);
     saveOwnedParticipantIds(schedule.id, nextOwnedIds);
-    await persistSchedule(nextSchedule);
     return true;
   }
 
   function startNewEvent() {
     setSchedule(null);
+    setRemoteWriteToken("");
     window.history.replaceState(null, "", window.location.pathname);
   }
 

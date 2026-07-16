@@ -1,9 +1,14 @@
-node_modules
-dist
-.agents
+node_modules/
+dist/
+.agents/
+
+# Local secrets and deployment-specific values. Keep only the example tracked.
 .env
-.env.local
+.env.*
+!.env.example
+
 .DS_Store
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
